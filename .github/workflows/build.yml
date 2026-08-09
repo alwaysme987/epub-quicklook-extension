@@ -9,39 +9,79 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check directory structure
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Root listing ==="
+          ls -la
+          echo "=== EPUBQuickLookHost/ listing ==="
+          ls -la EPUBQuickLookHost/ 2>/dev/null || echo "No EPUBQuickLookHost dir"
+          echo "=== Find all .xcodeproj ==="
+          find . -name "*.xcodeproj" -type d 2>/dev/null
+          echo "=== Find all .xcworkspace ==="
+          find . -name "*.xcworkspace" -type d 2>/dev/null
+
       - name: List Xcode schemes (debug)
         run: |
-          cd EPUBQuickLookHost
-          xcodebuild -list -project EPUBQuickLookHost.xcodeproj
+          # 尝试从根目录
+          if [ -f "EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            echo "Found at root"
+            xcodebuild -list -project EPUBQuickLookHost.xcodeproj
+          elif [ -f "EPUBQuickLookHost/EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            echo "Found in EPUBQuickLookHost/"
+            cd EPUBQuickLookHost
+            xcodebuild -list -project EPUBQuickLookHost.xcodeproj
+          else
+            echo "Searching..."
+            find . -name "*.xcodeproj" -exec xcodebuild -list -project {} \;
+          fi
 
       - name: Resolve Swift Package Dependencies
         run: |
-          cd EPUBQuickLookHost
-          xcodebuild -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLookHost             -destination "platform=macOS"             -resolvePackageDependencies
+          if [ -f "EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            xcodebuild -project EPUBQuickLookHost.xcodeproj               -scheme EPUBQuickLookHost               -destination "platform=macOS"               -resolvePackageDependencies
+          elif [ -f "EPUBQuickLookHost/EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            cd EPUBQuickLookHost
+            xcodebuild -project EPUBQuickLookHost.xcodeproj               -scheme EPUBQuickLookHost               -destination "platform=macOS"               -resolvePackageDependencies
+          fi
 
       - name: Build Host App
         run: |
-          cd EPUBQuickLookHost
+          if [ -f "EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            PROJ="EPUBQuickLookHost.xcodeproj"
+            cd .
+          else
+            PROJ="EPUBQuickLookHost/EPUBQuickLookHost.xcodeproj"
+            cd EPUBQuickLookHost
+          fi
           xcodebuild archive             -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLookHost             -destination "platform=macOS"             -archivePath "../build/EPUBQuickLookHost.xcarchive"             CODE_SIGN_IDENTITY="-"             CODE_SIGNING_REQUIRED=NO             CODE_SIGNING_ALLOWED=NO             | tee "../build/build-host.log" | grep -E "(error|warning|Build|Succeeded|Failed|ARCHIVE)" || true
 
       - name: Build Quick Look Extension
         run: |
-          cd EPUBQuickLookHost
+          if [ -f "EPUBQuickLookHost.xcodeproj/project.pbxproj" ]; then
+            cd .
+          else
+            cd EPUBQuickLookHost
+          fi
           xcodebuild archive             -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLook             -destination "platform=macOS"             -archivePath "../build/EPUBQuickLook.xcarchive"             CODE_SIGN_IDENTITY="-"             CODE_SIGNING_REQUIRED=NO             CODE_SIGNING_ALLOWED=NO             | tee "../build/build-ext.log" | grep -E "(error|warning|Build|Succeeded|Failed|ARCHIVE)" || true
 
       - name: Export Host App
         run: |
           mkdir -p build/Products
-          # 从 xcarchive 中提取 .app
-          cp -R "build/EPUBQuickLookHost.xcarchive/Products/Applications/EPUBQuickLookHost.app" "build/Products/"
-
-          # 检查扩展是否已嵌入（Host App 构建时通常会嵌入）
-          ls -la "build/Products/EPUBQuickLookHost.app/Contents/PlugIns/" || echo "No PlugIns folder"
+          cp -R "build/EPUBQuickLookHost.xcarchive/Products/Applications/EPUBQuickLookHost.app" "build/Products/" 2>/dev/null ||           cp -R "EPUBQuickLookHost/build/EPUBQuickLookHost.xcarchive/Products/Applications/EPUBQuickLookHost.app" "build/Products/" 2>/dev/null ||           echo "Trying to find app..."
+          find . -name "EPUBQuickLookHost.app" -type d
 
       - name: Package DMG
         run: |
           mkdir -p staging
-          cp -R "build/Products/EPUBQuickLookHost.app" staging/
+          APP_PATH=$(find . -name "EPUBQuickLookHost.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            cp -R "$APP_PATH" staging/
+          else
+            echo "App not found"
+            exit 1
+          fi
           ln -s /Applications staging/Applications
           hdiutil create             -volname "EPUBQuickLook"             -srcfolder staging             -ov             -format UDZO             "build/EPUBQuickLook.dmg"
 
