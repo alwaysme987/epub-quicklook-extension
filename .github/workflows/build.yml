@@ -8,36 +8,45 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: List Xcode schemes (debug)
+        run: |
+          cd EPUBQuickLookHost
+          xcodebuild -list -project EPUBQuickLookHost.xcodeproj
+
+      - name: Resolve Swift Package Dependencies
+        run: |
+          cd EPUBQuickLookHost
+          xcodebuild -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLookHost             -destination "platform=macOS"             -resolvePackageDependencies
+
       - name: Build Host App
         run: |
           cd EPUBQuickLookHost
-          xcodebuild -project EPUBQuickLookHost.xcodeproj \
-            -scheme EPUBQuickLookHost \
-            -configuration Release \
-            -derivedDataPath build \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-          
-          xcodebuild -project EPUBQuickLookHost.xcodeproj \
-            -scheme EPUBQuickLook \
-            -configuration Release \
-            -derivedDataPath build \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+          xcodebuild archive             -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLookHost             -destination "platform=macOS"             -archivePath "../build/EPUBQuickLookHost.xcarchive"             CODE_SIGN_IDENTITY="-"             CODE_SIGNING_REQUIRED=NO             CODE_SIGNING_ALLOWED=NO             | tee "../build/build-host.log" | grep -E "(error|warning|Build|Succeeded|Failed|ARCHIVE)" || true
 
-      - name: Package
+      - name: Build Quick Look Extension
         run: |
-          APP_PATH="EPUBQuickLookHost/build/Build/Products/Release/EPUBQuickLookHost.app"
+          cd EPUBQuickLookHost
+          xcodebuild archive             -project EPUBQuickLookHost.xcodeproj             -scheme EPUBQuickLook             -destination "platform=macOS"             -archivePath "../build/EPUBQuickLook.xcarchive"             CODE_SIGN_IDENTITY="-"             CODE_SIGNING_REQUIRED=NO             CODE_SIGNING_ALLOWED=NO             | tee "../build/build-ext.log" | grep -E "(error|warning|Build|Succeeded|Failed|ARCHIVE)" || true
+
+      - name: Export Host App
+        run: |
+          mkdir -p build/Products
+          # 从 xcarchive 中提取 .app
+          cp -R "build/EPUBQuickLookHost.xcarchive/Products/Applications/EPUBQuickLookHost.app" "build/Products/"
+
+          # 检查扩展是否已嵌入（Host App 构建时通常会嵌入）
+          ls -la "build/Products/EPUBQuickLookHost.app/Contents/PlugIns/" || echo "No PlugIns folder"
+
+      - name: Package DMG
+        run: |
           mkdir -p staging
-          cp -R "$APP_PATH" staging/
+          cp -R "build/Products/EPUBQuickLookHost.app" staging/
           ln -s /Applications staging/Applications
-          hdiutil create -volname "EPUBQuickLook" -srcfolder staging -ov -format UDZO EPUBQuickLook.dmg
+          hdiutil create             -volname "EPUBQuickLook"             -srcfolder staging             -ov             -format UDZO             "build/EPUBQuickLook.dmg"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: EPUBQuickLook
-          path: EPUBQuickLook.dmg
+          path: build/EPUBQuickLook.dmg
