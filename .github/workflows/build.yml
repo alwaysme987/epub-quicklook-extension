@@ -1,0 +1,43 @@
+name: Build EPUBQuickLook
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build Host App
+        run: |
+          cd EPUBQuickLookHost
+          xcodebuild -project EPUBQuickLookHost.xcodeproj \
+            -scheme EPUBQuickLookHost \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          xcodebuild -project EPUBQuickLookHost.xcodeproj \
+            -scheme EPUBQuickLook \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package
+        run: |
+          APP_PATH="EPUBQuickLookHost/build/Build/Products/Release/EPUBQuickLookHost.app"
+          mkdir -p staging
+          cp -R "$APP_PATH" staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "EPUBQuickLook" -srcfolder staging -ov -format UDZO EPUBQuickLook.dmg
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EPUBQuickLook
+          path: EPUBQuickLook.dmg
